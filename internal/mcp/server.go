@@ -9,6 +9,7 @@ import (
 	"log/slog"
 
 	"github.com/kush/ocr-mcp/configs"
+	"github.com/kush/ocr-mcp/internal/ocr"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
@@ -16,8 +17,9 @@ import (
 
 // Server wraps the MCP server and provides OCR-related tools.
 type Server struct {
-	mcpServer *server.MCPServer
-	cfg       *configs.Config
+	mcpServer  *server.MCPServer
+	cfg        *configs.Config
+	ocr        ocr.OCRProvider
 }
 
 // NewServer creates a new MCP server with OCR tools registered.
@@ -32,6 +34,23 @@ func NewServer(cfg *configs.Config) (*Server, error) {
 			server.WithLogging(),
 		),
 		cfg: cfg,
+	}
+
+	// Initialize OCR provider
+	ocrProvider, err := ocr.NewProvider(ocr.ProviderConfig{
+		Type:        "paddleocr",
+		ServiceURL:  cfg.OCRServiceURL,
+		ServicePort: cfg.OCRServicePort,
+		Timeout:     cfg.OCRTimeout,
+		MaxRetries:  cfg.OCRMaxRetries,
+	})
+	if err != nil {
+		slog.Warn("failed to initialize OCR provider, server will start with limited functionality",
+			slog.String("error", err.Error()),
+		)
+	} else {
+		s.ocr = ocrProvider
+		slog.Info("OCR provider initialized", slog.String("provider", ocrProvider.Name()))
 	}
 
 	// Register tools

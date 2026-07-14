@@ -94,14 +94,33 @@ func (s *Server) handleReadImage(
 	// }
 
 	// --- Step 6: Send to OCR service ---
-	// TODO(Phase 2+3): Use OCR provider interface
-	// ocrResult, err := s.ocrProvider.ExtractText(ctx, imageBytes)
-	// if err != nil {
-	//     return toolErrorToResult(ErrOCRFailed.WithDetails(err.Error()))
-	// }
+	// Use the OCR provider if available; fall back to placeholder if none configured.
+	if s.ocr != nil {
+		ocrResult, err := s.ocr.ExtractText(ctx, imageBytes)
+		if err != nil {
+			return toolErrorToResult(ErrOCRFailed.WithDetails(err.Error()))
+		}
 
-	// --- Step 7: Format result as Markdown ---
-	// TODO(Phase 5): Use formatter interface
+		slog.Debug("OCR completed",
+			slog.String("hash", fmt.Sprintf("%x", imageHash)),
+			slog.Float64("confidence", ocrResult.Confidence),
+			slog.Int("text_length", len(ocrResult.Text)),
+		)
+
+		// --- Step 7: Format result as Markdown ---
+		// TODO(Phase 5): Use formatter interface
+		result := buildPlaceholderResult(imageData, format, imageHash)
+
+		// --- Step 8: Cache result ---
+		// TODO(Phase 6): Cache the result
+		// if err := s.cache.Set(ctx, imageHash, ocrResult, s.cfg.CacheTTL); err != nil {
+		//     slog.Warn("failed to cache result", slog.String("error", err.Error()))
+		// }
+
+		return result, nil
+	}
+
+	slog.Debug("no OCR provider configured, returning placeholder")
 	result := buildPlaceholderResult(imageData, format, imageHash)
 
 	// --- Step 8: Cache result ---
