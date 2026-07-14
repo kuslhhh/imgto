@@ -9,6 +9,7 @@ import (
 	"log/slog"
 
 	"github.com/kush/ocr-mcp/configs"
+	"github.com/kush/ocr-mcp/internal/cache"
 	"github.com/kush/ocr-mcp/internal/ocr"
 	"github.com/kush/ocr-mcp/internal/preprocess"
 
@@ -22,6 +23,7 @@ type Server struct {
 	cfg         *configs.Config
 	ocr         ocr.OCRProvider
 	preproc     *preprocess.Processor
+	cache       cache.Cache
 }
 
 // NewServer creates a new MCP server with OCR tools registered.
@@ -47,6 +49,17 @@ func NewServer(cfg *configs.Config) (*Server, error) {
 	slog.Info("image preprocessor initialized",
 		slog.Int("max_width", cfg.MaxImageWidth),
 		slog.Int("max_height", cfg.MaxImageHeight),
+	)
+
+	// Initialize cache
+	s.cache = cache.NewMemoryCache(cache.Config{
+		MaxSize: cfg.CacheMaxSize,
+		TTL:     cfg.CacheTTL,
+	})
+	slog.Info("cache initialized",
+		slog.String("type", "memory"),
+		slog.Int("max_size", cfg.CacheMaxSize),
+		slog.Duration("ttl", cfg.CacheTTL),
 	)
 
 	// Initialize OCR provider

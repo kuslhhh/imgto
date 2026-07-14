@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"strings"
 
+	"github.com/kush/ocr-mcp/internal/cache"
 	"github.com/kush/ocr-mcp/internal/formatter"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -81,12 +82,18 @@ func (s *Server) handleReadImage(
 	)
 
 	// --- Step 4: Check cache ---
-	// TODO(Phase 6): Use cache interface to check for existing result
-	// cachedResult, err := s.cache.Get(ctx, imageHash)
-	// if err == nil && cachedResult != nil {
-	//     slog.Debug("cache hit", slog.String("hash", fmt.Sprintf("%x", imageHash)))
-	//     return formatOCRResult(cachedResult, format), nil
-	// }
+	cacheKey := cache.HexKey(imageHash)
+	if s.cache != nil {
+		cachedResult, err := s.cache.Get(ctx, cacheKey)
+		if err == nil && cachedResult != nil {
+			slog.Debug("cache hit", slog.String("hash", cacheKey[:16]))
+			formatted, fmtErr := formatter.FormatString(cachedResult, format)
+			if fmtErr == nil {
+				return mcp.NewToolResultText(formatted), nil
+			}
+			slog.Debug("cache hit but formatting failed, re-processing", slog.String("error", fmtErr.Error()))
+		}
+	}
 
 	// --- Step 5: Preprocess image ---
 	processedBytes := imageBytes
@@ -125,10 +132,13 @@ func (s *Server) handleReadImage(
 		}
 
 		// --- Step 8: Cache result ---
-		// TODO(Phase 6): Cache the result
-		// if err := s.cache.Set(ctx, imageHash, ocrResult, s.cfg.CacheTTL); err != nil {
-		//     slog.Warn("failed to cache result", slog.String("error", err.Error()))
-		// }
+		if s.cache != nil {
+			if err := s.cache.Set(ctx, cacheKey, ocrResult, s.cfg.CacheTTL); err != nil {
+				slog.Warn("failed to cache result", slog.String("error", err.Error()))
+			} else {
+				slog.Debug("result cached", slog.String("key", cacheKey[:16]))
+			}
+		}
 
 		return mcp.NewToolResultText(formatted), nil
 	}
@@ -233,10 +243,4 @@ func toolErrorToResult(err error) (*mcp.CallToolResult, error) {
 	return mcp.NewToolResultError(err.Error()), nil
 }
 
-// safePrefix returns the first n characters of a string for logging.
-func safePrefix(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	return s[:n] + "..."
-}
+
