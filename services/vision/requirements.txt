@@ -1,0 +1,23 @@
+# Vision Service dependencies
+# Install with: pip install -r requirements.txt
+
+# Web framework
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0
+python-multipart>=0.0.12
+
+# Image processing
+Pillow>=10.0.0
+
+# Deep learning framework
+torch>=2.0.0
+torchvision>=0.15.0
+transformers>=4.36.0
+accelerate>=0.25.0
+
+# For Qwen2.5-VL support (uncomment if using Qwen)
+# qwen-vl-utils>=0.0.8
+
+# Utilities
+numpy>=1.24.0
+pydantic>=2.0.0

@@ -12,6 +12,7 @@ import (
 	"github.com/kush/ocr-mcp/internal/cache"
 	"github.com/kush/ocr-mcp/internal/ocr"
 	"github.com/kush/ocr-mcp/internal/preprocess"
+	"github.com/kush/ocr-mcp/internal/vision"
 	"github.com/kush/ocr-mcp/internal/workers"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -28,6 +29,7 @@ type Server struct {
 	pool        *workers.Pool
 	metrics     *Metrics
 	ratelimit   *RateLimiter
+	vision      *vision.Client
 }
 
 // NewServer creates a new MCP server with OCR tools registered.
@@ -67,6 +69,12 @@ func NewServer(cfg *configs.Config) (*Server, error) {
 		slog.Int("max_size", cfg.CacheMaxSize),
 		slog.Duration("ttl", cfg.CacheTTL),
 	)
+
+	// Initialize vision service (optional)
+	if cfg.VisionServiceURL != "" {
+		s.vision = vision.NewClient(cfg.VisionServiceURL, cfg.OCRTimeout)
+		slog.Info("vision service client initialized", slog.String("url", cfg.VisionServiceURL))
+	}
 
 	// Initialize OCR provider
 	ocrProvider, err := ocr.NewProvider(ocr.ProviderConfig{
@@ -170,6 +178,12 @@ func (s *Server) registerTools() error {
 	for _, tool := range tools {
 		s.mcpServer.AddTool(tool, s.handleReadImage)
 		slog.Debug("registered tool", slog.String("name", tool.Name))
+	}
+
+	// Register vision tool only if vision service is configured
+	if s.vision != nil {
+		s.mcpServer.AddTool(describeImageTool(), s.handleDescribeImage)
+		slog.Info("registered vision tool", slog.String("name", "describe_image"))
 	}
 
 	return nil

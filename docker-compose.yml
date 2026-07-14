@@ -38,6 +38,35 @@ services:
   # ===========================================================================
   # MCP Server — Go-based MCP server with OCR tools
   # ===========================================================================
+  # ===========================================================================
+  # Vision Service — Vision-language model for image understanding
+  # ===========================================================================
+  vision-service:
+    build:
+      context: .
+      dockerfile: services/vision/Dockerfile.vision
+    image: vision-service:latest
+    container_name: ocr-mcp-vision
+    ports:
+      - "${VISION_PORT:-9080}:${VISION_PORT:-9080}"
+    environment:
+      VISION_HOST: "0.0.0.0"
+      VISION_PORT: "${VISION_PORT:-9080}"
+      VISION_MODEL: "${VISION_MODEL:-microsoft/Florence-2-base}"
+      VISION_DEVICE: "${VISION_DEVICE:-cpu}"
+      VISION_LOG_LEVEL: "${VISION_LOG_LEVEL:-info}"
+      VISION_MAX_IMAGE_SIZE_MB: "${VISION_MAX_IMAGE_SIZE_MB:-20}"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:9080/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+
+  # ===========================================================================
+  # MCP Server — Go-based MCP server with OCR tools
+  # ===========================================================================
   mcp-server:
     build:
       context: .
@@ -56,6 +85,9 @@ services:
       OCR_SERVICE_PORT: "9090"
       OCR_TIMEOUT: "${OCR_TIMEOUT:-30s}"
       OCR_MAX_RETRIES: "${OCR_MAX_RETRIES:-3}"
+
+      # Vision service connection
+      VISION_SERVICE_URL: "http://vision-service:${VISION_PORT:-9080}"
 
       # Cache
       CACHE_TYPE: "${CACHE_TYPE:-memory}"
@@ -87,4 +119,6 @@ services:
     depends_on:
       ocr-service:
         condition: service_healthy
+      vision-service:
+        condition: service_started
     restart: unless-stopped

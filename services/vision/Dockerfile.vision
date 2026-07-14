@@ -1,0 +1,37 @@
+# Vision Service Dockerfile
+# Uses a Python image with CUDA support for GPU acceleration.
+# For CPU-only, use python:3.11-slim instead.
+
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install system dependencies for OpenCV and PyTorch
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libgl1-mesa-glx \
+    libglib2.0-0 \
+    libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements first for better layer caching
+COPY services/vision/requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy application code
+COPY services/vision/ .
+
+# Environment variables
+ENV VISION_HOST=0.0.0.0
+ENV VISION_PORT=9080
+ENV VISION_MODEL=microsoft/Florence-2-base
+ENV VISION_DEVICE=cpu
+ENV VISION_LOG_LEVEL=info
+ENV VISION_MAX_IMAGE_SIZE_MB=20
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:9080/health')" || exit 1
+
+EXPOSE 9080
+
+CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "9080"]

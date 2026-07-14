@@ -28,6 +28,8 @@ const (
 	ErrCodeProviderNotFound ErrorCode = "PROVIDER_NOT_FOUND"
 	// ErrCodeVisionFailed indicates the vision service returned an error.
 	ErrCodeVisionFailed ErrorCode = "VISION_FAILED"
+	// ErrCodeVisionNotConfigured indicates no vision service is configured.
+	ErrCodeVisionNotConfigured ErrorCode = "VISION_NOT_CONFIGURED"
 	// ErrCodeAuthFailed indicates authentication failed.
 	ErrCodeAuthFailed ErrorCode = "AUTH_FAILED"
 	// ErrCodeRateLimited indicates the request was rate limited.
@@ -84,6 +86,8 @@ var (
 	ErrInternal          = NewToolError(ErrCodeInternal, "internal server error")
 	ErrAuthFailed        = NewToolError(ErrCodeAuthFailed, "authentication failed")
 	ErrRateLimited       = NewToolError(ErrCodeRateLimited, "rate limit exceeded")
+	ErrVisionFailed      = NewToolError(ErrCodeVisionFailed, "vision processing failed")
+	ErrVisionNotConfigured = NewToolError(ErrCodeVisionNotConfigured, "vision service not configured")
 )
 
 // IsCancelledOrTimeout checks if a context error is cancellation or deadline exceeded.
