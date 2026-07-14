@@ -3,9 +3,12 @@ package configs
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"strconv"
 	"time"
+
+	"gopkg.in/yaml.v3"
 )
 
 // Config holds all configuration for the OCR MCP server.
@@ -90,11 +93,56 @@ func DefaultConfig() *Config {
 	}
 }
 
-// LoadConfig loads configuration from environment variables,
-// falling back to defaults where not set.
+// LoadConfig loads configuration from environment variables and an optional
+// YAML config file, falling back to defaults where not set.
+//
+// Precedence (highest to lowest):
+//  1. Environment variables
+//  2. YAML config file (if CONFIG_FILE is set or config.yaml exists)
+//  3. Defaults
 func LoadConfig() *Config {
 	cfg := DefaultConfig()
 
+	// Step 1: Load from optional YAML config file
+	loadYAMLConfig(cfg)
+
+	// Step 2: Apply environment variables (override YAML config)
+	applyEnvConfig(cfg)
+
+	return cfg
+}
+
+// loadYAMLConfig loads optional YAML config file into cfg.
+func loadYAMLConfig(cfg *Config) {
+	configPath := os.Getenv("CONFIG_FILE")
+	if configPath == "" {
+		if _, err := os.Stat("config.yaml"); err == nil {
+			configPath = "config.yaml"
+		}
+	}
+
+	if configPath == "" {
+		return
+	}
+
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		slog.Warn("failed to read config file", slog.String("path", configPath), slog.String("error", err.Error()))
+		return
+	}
+
+	var fileCfg Config
+	if err := yaml.Unmarshal(data, &fileCfg); err != nil {
+		slog.Warn("failed to parse config file", slog.String("path", configPath), slog.String("error", err.Error()))
+		return
+	}
+
+	applyFileConfig(cfg, &fileCfg)
+	slog.Debug("loaded config file", slog.String("path", configPath))
+}
+
+// applyEnvConfig reads environment variables and overrides cfg values.
+func applyEnvConfig(cfg *Config) {
 	if v := os.Getenv("SERVER_PORT"); v != "" {
 		if port, err := strconv.Atoi(v); err == nil {
 			cfg.ServerPort = port
@@ -108,8 +156,6 @@ func LoadConfig() *Config {
 			cfg.Shutdown = d
 		}
 	}
-
-	// OCR Service
 	if v := os.Getenv("OCR_SERVICE_URL"); v != "" {
 		cfg.OCRServiceURL = v
 	}
@@ -128,8 +174,6 @@ func LoadConfig() *Config {
 			cfg.OCRMaxRetries = retries
 		}
 	}
-
-	// Cache
 	if v := os.Getenv("CACHE_TYPE"); v != "" {
 		cfg.CacheType = v
 	}
@@ -154,8 +198,6 @@ func LoadConfig() *Config {
 			cfg.RedisDB = db
 		}
 	}
-
-	// Worker pool
 	if v := os.Getenv("WORKER_COUNT"); v != "" {
 		if count, err := strconv.Atoi(v); err == nil {
 			cfg.WorkerCount = count
@@ -171,8 +213,6 @@ func LoadConfig() *Config {
 			cfg.JobTimeout = d
 		}
 	}
-
-	// Image preprocessing
 	if v := os.Getenv("MAX_IMAGE_WIDTH"); v != "" {
 		if w, err := strconv.Atoi(v); err == nil {
 			cfg.MaxImageWidth = w
@@ -191,35 +231,94 @@ func LoadConfig() *Config {
 	if v := os.Getenv("AUTO_PREPROCESS"); v != "" {
 		cfg.AutoPreprocess = v == "true" || v == "1" || v == "yes"
 	}
-
-	// Output
 	if v := os.Getenv("OUTPUT_FORMAT"); v != "" {
 		cfg.OutputFormat = v
 	}
-
-	// Auth
 	if v := os.Getenv("API_KEY"); v != "" {
 		cfg.APIKey = v
 	}
-
-	// Rate limiting
 	if v := os.Getenv("RATE_LIMIT_PER_MIN"); v != "" {
 		if limit, err := strconv.Atoi(v); err == nil {
 			cfg.RateLimitPerMin = limit
 		}
 	}
-
-	// Logging
 	if v := os.Getenv("LOG_LEVEL"); v != "" {
 		cfg.LogLevel = v
 	}
-
-	// Vision service
 	if v := os.Getenv("VISION_SERVICE_URL"); v != "" {
 		cfg.VisionServiceURL = v
 	}
+}
 
-	return cfg
+// applyFileConfig applies non-zero values from fileCfg to cfg.
+// Environment variables still take precedence since they're applied after this.
+func applyFileConfig(cfg, fileCfg *Config) {
+	if fileCfg.ServerPort != 0 {
+		cfg.ServerPort = fileCfg.ServerPort
+	}
+	if fileCfg.ServerHost != "" {
+		cfg.ServerHost = fileCfg.ServerHost
+	}
+	if fileCfg.Shutdown != 0 {
+		cfg.Shutdown = fileCfg.Shutdown
+	}
+	if fileCfg.OCRServiceURL != "" {
+		cfg.OCRServiceURL = fileCfg.OCRServiceURL
+	}
+	if fileCfg.OCRServicePort != 0 {
+		cfg.OCRServicePort = fileCfg.OCRServicePort
+	}
+	if fileCfg.OCRTimeout != 0 {
+		cfg.OCRTimeout = fileCfg.OCRTimeout
+	}
+	if fileCfg.OCRMaxRetries != 0 {
+		cfg.OCRMaxRetries = fileCfg.OCRMaxRetries
+	}
+	if fileCfg.CacheType != "" {
+		cfg.CacheType = fileCfg.CacheType
+	}
+	if fileCfg.CacheTTL != 0 {
+		cfg.CacheTTL = fileCfg.CacheTTL
+	}
+	if fileCfg.CacheMaxSize != 0 {
+		cfg.CacheMaxSize = fileCfg.CacheMaxSize
+	}
+	if fileCfg.RedisURL != "" {
+		cfg.RedisURL = fileCfg.RedisURL
+	}
+	if fileCfg.WorkerCount != 0 {
+		cfg.WorkerCount = fileCfg.WorkerCount
+	}
+	if fileCfg.QueueSize != 0 {
+		cfg.QueueSize = fileCfg.QueueSize
+	}
+	if fileCfg.JobTimeout != 0 {
+		cfg.JobTimeout = fileCfg.JobTimeout
+	}
+	if fileCfg.MaxImageWidth != 0 {
+		cfg.MaxImageWidth = fileCfg.MaxImageWidth
+	}
+	if fileCfg.MaxImageHeight != 0 {
+		cfg.MaxImageHeight = fileCfg.MaxImageHeight
+	}
+	if fileCfg.MaxImageSizeMB != 0 {
+		cfg.MaxImageSizeMB = fileCfg.MaxImageSizeMB
+	}
+	if fileCfg.OutputFormat != "" {
+		cfg.OutputFormat = fileCfg.OutputFormat
+	}
+	if fileCfg.APIKey != "" {
+		cfg.APIKey = fileCfg.APIKey
+	}
+	if fileCfg.RateLimitPerMin != 0 {
+		cfg.RateLimitPerMin = fileCfg.RateLimitPerMin
+	}
+	if fileCfg.LogLevel != "" {
+		cfg.LogLevel = fileCfg.LogLevel
+	}
+	if fileCfg.VisionServiceURL != "" {
+		cfg.VisionServiceURL = fileCfg.VisionServiceURL
+	}
 }
 
 // OCRServiceAddr returns the full address of the OCR service.
