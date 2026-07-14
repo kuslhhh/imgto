@@ -6,6 +6,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -25,8 +26,11 @@ func main() {
 		Level: logLevel,
 	})))
 
+	adminAddr := fmt.Sprintf("%s:%d", cfg.ServerHost, cfg.ServerPort+1)
+
 	slog.Info("starting OCR MCP server",
 		slog.String("addr", cfg.ServerAddr()),
+		slog.String("admin", adminAddr),
 		slog.String("ocr_service", cfg.OCRServiceAddr()),
 		slog.String("cache_type", cfg.CacheType),
 		slog.Int("workers", cfg.WorkerCount),
@@ -52,10 +56,19 @@ func main() {
 		cancel()
 	}()
 
-	// Start server
+	// Start admin server (health + metrics)
+	adminServer := mcp.NewAdminServer(server, adminAddr)
+	adminServer.Start()
+
+	// Start MCP server
 	if err := server.Start(ctx, cfg.ServerAddr()); err != nil {
 		slog.Error("server error", slog.String("error", err.Error()))
 		os.Exit(1)
+	}
+
+	// Shutdown admin server
+	if shutdownErr := adminServer.Shutdown(context.Background()); shutdownErr != nil {
+		slog.Warn("admin server shutdown", slog.String("error", shutdownErr.Error()))
 	}
 
 	slog.Info("server stopped gracefully")

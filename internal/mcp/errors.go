@@ -28,6 +28,10 @@ const (
 	ErrCodeProviderNotFound ErrorCode = "PROVIDER_NOT_FOUND"
 	// ErrCodeVisionFailed indicates the vision service returned an error.
 	ErrCodeVisionFailed ErrorCode = "VISION_FAILED"
+	// ErrCodeAuthFailed indicates authentication failed.
+	ErrCodeAuthFailed ErrorCode = "AUTH_FAILED"
+	// ErrCodeRateLimited indicates the request was rate limited.
+	ErrCodeRateLimited ErrorCode = "RATE_LIMITED"
 )
 
 // ToolError is a structured error that maps to a user-facing MCP error result.
@@ -78,6 +82,8 @@ var (
 	ErrProviderNotFound  = NewToolError(ErrCodeProviderNotFound, "no OCR provider configured")
 	ErrTimeout           = NewToolError(ErrCodeTimeout, "operation timed out")
 	ErrInternal          = NewToolError(ErrCodeInternal, "internal server error")
+	ErrAuthFailed        = NewToolError(ErrCodeAuthFailed, "authentication failed")
+	ErrRateLimited       = NewToolError(ErrCodeRateLimited, "rate limit exceeded")
 )
 
 // IsCancelledOrTimeout checks if a context error is cancellation or deadline exceeded.

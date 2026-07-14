@@ -177,6 +177,10 @@ func (c *MemoryCache) evictOne() {
 	// If no expired entries found, remove the oldest
 	if oldestKey != "" {
 		delete(c.items, oldestKey)
-		slog.Debug("evicted oldest cache entry", slog.String("key", oldestKey[:16]))
+		keyPreview := oldestKey
+		if len(keyPreview) > 16 {
+			keyPreview = keyPreview[:16]
+		}
+		slog.Debug("evicted oldest cache entry", slog.String("key", keyPreview))
 	}
 }

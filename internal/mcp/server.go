@@ -26,6 +26,8 @@ type Server struct {
 	preproc     *preprocess.Processor
 	cache       cache.Cache
 	pool        *workers.Pool
+	metrics     *Metrics
+	ratelimit   *RateLimiter
 }
 
 // NewServer creates a new MCP server with OCR tools registered.
@@ -39,7 +41,9 @@ func NewServer(cfg *configs.Config) (*Server, error) {
 			server.WithToolCapabilities(true),
 			server.WithLogging(),
 		),
-		cfg: cfg,
+		cfg:       cfg,
+		metrics:   NewMetrics(),
+		ratelimit: NewRateLimiter(cfg.RateLimitPerMin),
 	}
 
 	// Initialize image preprocessor

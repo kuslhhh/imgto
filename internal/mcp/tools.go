@@ -40,7 +40,7 @@ func readImageTool() mcp.Tool {
 }
 
 // handleReadImage handles the read_image MCP tool call.
-// It performs validation, hashing, caching, preprocessing, OCR, and formatting.
+// It performs auth, rate limiting, validation, caching, preprocessing, OCR, and formatting.
 func (s *Server) handleReadImage(
 	ctx context.Context,
 	req mcp.CallToolRequest,
@@ -48,6 +48,28 @@ func (s *Server) handleReadImage(
 	args, ok := req.Params.Arguments.(map[string]interface{})
 	if !ok {
 		return mcp.NewToolResultError("invalid arguments type"), nil
+	}
+
+	// Track metrics
+	s.metrics.RequestsTotal.Add(1)
+	s.metrics.RequestsActive.Add(1)
+	defer s.metrics.RequestsActive.Add(-1)
+
+	// --- Step 0: Authentication ---
+	if apiKey, _ := args["api_key"].(string); !s.Authenticate(apiKey) {
+		s.metrics.AuthFailures.Add(1)
+		return toolErrorToResult(ErrAuthFailed.WithDetails("invalid or missing API key"))
+	}
+
+	// --- Step 0b: Rate limiting ---
+	clientIP, _ := args["client_id"].(string)
+	if clientIP == "" {
+		clientIP = "default"
+	}
+	if !s.ratelimit.Allow(clientIP) {
+		s.metrics.RateLimited.Add(1)
+		return toolErrorToResult(ErrRateLimited.WithDetails(
+			"too many requests. Try again later."))
 	}
 
 	// --- Step 1: Extract and validate input ---
@@ -88,6 +110,7 @@ func (s *Server) handleReadImage(
 	if s.cache != nil {
 		cachedResult, err := s.cache.Get(ctx, cacheKey)
 		if err == nil && cachedResult != nil {
+			s.metrics.CacheHits.Add(1)
 			slog.Debug("cache hit", slog.String("hash", cacheKey[:16]))
 			formatted, fmtErr := formatter.FormatString(cachedResult, format)
 			if fmtErr == nil {
@@ -96,6 +119,8 @@ func (s *Server) handleReadImage(
 			slog.Debug("cache hit but formatting failed, re-processing", slog.String("error", fmtErr.Error()))
 		}
 	}
+
+	s.metrics.CacheMisses.Add(1)
 
 	// --- Step 5: Preprocess image ---
 	processedBytes := imageBytes
@@ -139,6 +164,7 @@ func (s *Server) handleReadImage(
 			case jobResult := <-resultCh:
 				if jobResult != nil {
 					if jobResult.Err != nil {
+						s.metrics.OCRErrors.Add(1)
 						return toolErrorToResult(ErrOCRFailed.WithDetails(jobResult.Err.Error()))
 					}
 					ocrResult = jobResult.Result
@@ -152,6 +178,7 @@ func (s *Server) handleReadImage(
 			// Direct call (no pool)
 			ocrResult, err = s.ocr.ExtractText(ctx, processedBytes)
 			if err != nil {
+				s.metrics.OCRErrors.Add(1)
 				return toolErrorToResult(ErrOCRFailed.WithDetails(err.Error()))
 			}
 		}
