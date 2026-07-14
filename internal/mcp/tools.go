@@ -87,16 +87,25 @@ func (s *Server) handleReadImage(
 	// }
 
 	// --- Step 5: Preprocess image ---
-	// TODO(Phase 4): Use preprocessor interface
-	// processedImage, err := s.preprocessor.Process(ctx, imageBytes, preprocess)
-	// if err != nil {
-	//     return toolErrorToResult(NewToolError(ErrCodeInternal, "image preprocessing failed").WithDetails(err.Error()))
-	// }
+	processedBytes := imageBytes
+	if s.preproc != nil {
+		result, err := s.preproc.Process(ctx, imageBytes, preprocess)
+		if err != nil {
+			return toolErrorToResult(NewToolError(ErrCodeInternal, "image preprocessing failed").WithDetails(err.Error()))
+		}
+		processedBytes = result
+		slog.Debug("image preprocessed",
+			slog.String("mode", preprocess),
+			slog.Int("original_size", len(imageBytes)),
+			slog.Int("processed_size", len(processedBytes)),
+		)
+	}
 
 	// --- Step 6: Send to OCR service ---
+	// Use processed bytes for OCR
 	// Use the OCR provider if available; fall back to placeholder if none configured.
 	if s.ocr != nil {
-		ocrResult, err := s.ocr.ExtractText(ctx, imageBytes)
+		ocrResult, err := s.ocr.ExtractText(ctx, processedBytes)
 		if err != nil {
 			return toolErrorToResult(ErrOCRFailed.WithDetails(err.Error()))
 		}

@@ -10,6 +10,7 @@ import (
 
 	"github.com/kush/ocr-mcp/configs"
 	"github.com/kush/ocr-mcp/internal/ocr"
+	"github.com/kush/ocr-mcp/internal/preprocess"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
@@ -17,9 +18,10 @@ import (
 
 // Server wraps the MCP server and provides OCR-related tools.
 type Server struct {
-	mcpServer  *server.MCPServer
-	cfg        *configs.Config
-	ocr        ocr.OCRProvider
+	mcpServer   *server.MCPServer
+	cfg         *configs.Config
+	ocr         ocr.OCRProvider
+	preproc     *preprocess.Processor
 }
 
 // NewServer creates a new MCP server with OCR tools registered.
@@ -35,6 +37,17 @@ func NewServer(cfg *configs.Config) (*Server, error) {
 		),
 		cfg: cfg,
 	}
+
+	// Initialize image preprocessor
+	s.preproc = preprocess.NewProcessor(preprocess.Options{
+		MaxWidth:       cfg.MaxImageWidth,
+		MaxHeight:      cfg.MaxImageHeight,
+		AutoPreprocess: cfg.AutoPreprocess,
+	})
+	slog.Info("image preprocessor initialized",
+		slog.Int("max_width", cfg.MaxImageWidth),
+		slog.Int("max_height", cfg.MaxImageHeight),
+	)
 
 	// Initialize OCR provider
 	ocrProvider, err := ocr.NewProvider(ocr.ProviderConfig{
