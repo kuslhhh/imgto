@@ -1,0 +1,90 @@
+# OCR MCP Server — Docker Compose
+#
+# Starts both the Go MCP server and the Python OCR service.
+# The OCR service runs on port 9090 (internal), exposed on 9090.
+# The MCP server runs on port 7070 (internal), exposed on 7070.
+#
+# Usage:
+#   docker compose up --build
+#   docker compose down
+
+services:
+  # ===========================================================================
+  # OCR Service — PaddleOCR-based text extraction
+  # ===========================================================================
+  ocr-service:
+    build:
+      context: .
+      dockerfile: services/ocr/Dockerfile.ocr
+    image: ocr-service:latest
+    container_name: ocr-mcp-ocr
+    ports:
+      - "9090:9090"
+    environment:
+      OCR_HOST: "0.0.0.0"
+      OCR_PORT: "9090"
+      OCR_USE_GPU: "${OCR_USE_GPU:-false}"
+      OCR_LANG: "${OCR_LANG:-en}"
+      OCR_LOG_LEVEL: "${OCR_LOG_LEVEL:-info}"
+      OCR_MAX_IMAGE_SIZE_MB: "${OCR_MAX_IMAGE_SIZE_MB:-20}"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:9090/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    restart: unless-stopped
+
+  # ===========================================================================
+  # MCP Server — Go-based MCP server with OCR tools
+  # ===========================================================================
+  mcp-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ocr-mcp-server:latest
+    container_name: ocr-mcp-server
+    ports:
+      - "${SERVER_PORT:-7070}:${SERVER_PORT:-7070}"
+    environment:
+      SERVER_PORT: "${SERVER_PORT:-7070}"
+      SERVER_HOST: "0.0.0.0"
+      SHUTDOWN_TIMEOUT: "${SHUTDOWN_TIMEOUT:-10s}"
+
+      # OCR service connection
+      OCR_SERVICE_URL: "http://ocr-service"
+      OCR_SERVICE_PORT: "9090"
+      OCR_TIMEOUT: "${OCR_TIMEOUT:-30s}"
+      OCR_MAX_RETRIES: "${OCR_MAX_RETRIES:-3}"
+
+      # Cache
+      CACHE_TYPE: "${CACHE_TYPE:-memory}"
+      CACHE_TTL: "${CACHE_TTL:-1h}"
+      CACHE_MAX_SIZE: "${CACHE_MAX_SIZE:-1000}"
+
+      # Worker pool
+      WORKER_COUNT: "${WORKER_COUNT:-4}"
+      QUEUE_SIZE: "${QUEUE_SIZE:-100}"
+      JOB_TIMEOUT: "${JOB_TIMEOUT:-60s}"
+
+      # Image preprocessing
+      MAX_IMAGE_WIDTH: "${MAX_IMAGE_WIDTH:-4096}"
+      MAX_IMAGE_HEIGHT: "${MAX_IMAGE_HEIGHT:-4096}"
+      MAX_IMAGE_SIZE_MB: "${MAX_IMAGE_SIZE_MB:-20}"
+      AUTO_PREPROCESS: "${AUTO_PREPROCESS:-true}"
+
+      # Output
+      OUTPUT_FORMAT: "${OUTPUT_FORMAT:-markdown}"
+
+      # Auth
+      API_KEY: "${API_KEY:-}"
+
+      # Rate limiting
+      RATE_LIMIT_PER_MIN: "${RATE_LIMIT_PER_MIN:-60}"
+
+      # Logging
+      LOG_LEVEL: "${LOG_LEVEL:-info}"
+    depends_on:
+      ocr-service:
+        condition: service_healthy
+    restart: unless-stopped

@@ -71,8 +71,8 @@ ocr-stop:
 
 # ---- All Services ----
 
-up: ocr-docker-build
-	docker-compose up --build
+up:
+	docker compose up --build
 
 # ---- Quality ----
 
@@ -108,13 +108,13 @@ clean:
 
 # ---- Docker ----
 docker-build:
-	docker build -t $(APP_NAME) .
+	docker build -f Dockerfile -t $(APP_NAME) .
 
 docker-run:
-	docker-compose up --build
+	docker compose up --build
 
 docker-stop:
-	docker-compose down
+	docker compose down
 
 # All checks
 check: fmt lint test
