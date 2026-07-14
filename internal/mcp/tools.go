@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"strings"
 
 	"github.com/kush/ocr-mcp/internal/cache"
@@ -54,23 +55,6 @@ func (s *Server) handleReadImage(
 	s.metrics.RequestsTotal.Add(1)
 	s.metrics.RequestsActive.Add(1)
 	defer s.metrics.RequestsActive.Add(-1)
-
-	// --- Step 0: Authentication ---
-	if apiKey, _ := args["api_key"].(string); !s.Authenticate(apiKey) {
-		s.metrics.AuthFailures.Add(1)
-		return toolErrorToResult(ErrAuthFailed.WithDetails("invalid or missing API key"))
-	}
-
-	// --- Step 0b: Rate limiting ---
-	clientIP, _ := args["client_id"].(string)
-	if clientIP == "" {
-		clientIP = "default"
-	}
-	if !s.ratelimit.Allow(clientIP) {
-		s.metrics.RateLimited.Add(1)
-		return toolErrorToResult(ErrRateLimited.WithDetails(
-			"too many requests. Try again later."))
-	}
 
 	// --- Step 1: Extract and validate input ---
 	imageData, format, preprocess, err := parseInputArgs(args)
@@ -219,21 +203,16 @@ func (s *Server) handleReadImage(
 
 // parseInputArgs extracts and validates arguments from the MCP tool request.
 func parseInputArgs(args map[string]interface{}) (imageData string, format string, preprocess string, err error) {
-	// Get image_data
+	// Get image_data (MCP clients send base64-encoded data here)
 	imageData, ok := args["image_data"].(string)
 	if !ok || imageData == "" {
-		// Try image_path as fallback
+		// Try image_path as fallback — MCP clients can resolve local files and send the path
 		imagePath, ok := args["image_path"].(string)
 		if !ok || imagePath == "" {
 			return "", "", "", ErrImageRequired
 		}
-		// file:// URL handling
-		if strings.HasPrefix(imagePath, "file://") {
-			imageData = imagePath
-		} else {
-			// Assume it's a local path — we'll need the MCP client to resolve it
-			imageData = "file://" + imagePath
-		}
+		// Note: image_path is passed through to decodeImageInput, which reads from disk
+		imageData = imagePath
 	}
 
 	// Get format (optional, defaults to "markdown")
@@ -253,8 +232,11 @@ func parseInputArgs(args map[string]interface{}) (imageData string, format strin
 	return imageData, format, preprocess, nil
 }
 
-// decodeImageInput decodes a base64-encoded image string.
-// Supports both raw base64 and data URIs (e.g., data:image/png;base64,...).
+// decodeImageInput decodes a base64-encoded image string or reads from a file path.
+// Supports:
+//   - Raw base64 strings
+//   - Data URIs (e.g., data:image/png;base64,...)
+//   - File paths (read from disk)
 func decodeImageInput(input string) ([]byte, error) {
 	// Handle data URIs
 	if strings.HasPrefix(input, "data:") {
@@ -266,25 +248,36 @@ func decodeImageInput(input string) ([]byte, error) {
 		input = parts[1]
 	}
 
-	// Handle file:// URLs — these won't have data, so return error
-	if strings.HasPrefix(input, "file://") {
-		return nil, NewToolError(ErrCodeValidation,
-			"file:// URLs require the MCP client to resolve the file. "+
-				"Use the image_path parameter or provide base64-encoded image_data instead.")
+	// Try to detect if this is a file path (not valid base64)
+	// A valid base64 string only contains [A-Za-z0-9+/=] or [A-Za-z0-9_-] for URL-safe
+	// File paths typically contain / or . characters that are invalid in base64.
+	// But rather than guessing, try base64 first, fall back to file read.
+
+	// Try base64 decoding first
+	if decoded, err := base64.StdEncoding.DecodeString(input); err == nil {
+		return decoded, nil
 	}
 
-	// Decode base64
-	decoded, err := base64.StdEncoding.DecodeString(input)
+	// Try raw URL encoding (no padding)
+	if decoded, err := base64.RawURLEncoding.DecodeString(input); err == nil {
+		return decoded, nil
+	}
+
+	// Base64 failed — try reading as a file path
+	// Add file:// prefix if not present
+	filePath := input
+	if strings.HasPrefix(filePath, "file://") {
+		filePath = strings.TrimPrefix(filePath, "file://")
+	}
+
+	data, err := os.ReadFile(filePath)
 	if err != nil {
-		// Try raw URL encoding (no padding)
-		decoded, err = base64.RawURLEncoding.DecodeString(input)
-		if err != nil {
-			return nil, NewToolError(ErrCodeValidation,
-				"invalid base64 encoding: image_data must be base64-encoded image bytes")
-		}
+		return nil, NewToolError(ErrCodeValidation,
+			"invalid input: not valid base64 and file not found. "+
+				"Provide base64-encoded image data via image_data, or a valid file path via image_path.")
 	}
 
-	return decoded, nil
+	return data, nil
 }
 
 // computeImageHash computes a SHA-256 hash of the image bytes.

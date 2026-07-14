@@ -42,22 +42,6 @@ func (s *Server) handleDescribeImage(
 	s.metrics.RequestsActive.Add(1)
 	defer s.metrics.RequestsActive.Add(-1)
 
-	// Auth
-	if apiKey, _ := args["api_key"].(string); !s.Authenticate(apiKey) {
-		s.metrics.AuthFailures.Add(1)
-		return toolErrorToResult(ErrAuthFailed.WithDetails("invalid or missing API key"))
-	}
-
-	// Rate limit
-	clientIP, _ := args["client_id"].(string)
-	if clientIP == "" {
-		clientIP = "default"
-	}
-	if !s.ratelimit.Allow(clientIP) {
-		s.metrics.RateLimited.Add(1)
-		return toolErrorToResult(ErrRateLimited.WithDetails("too many requests. Try again later."))
-	}
-
 	// Extract arguments
 	imageData, _ := args["image_data"].(string)
 	if imageData == "" {
@@ -69,15 +53,16 @@ func (s *Server) handleDescribeImage(
 		detailLevel = "detailed"
 	}
 
-	// Get output format
-	format, _ := args["format"].(string)
+	// Get output format (default to markdown using ParseFormat for consistency)
+	formatRaw, _ := args["format"].(string)
+	format := formatter.ParseFormat(formatRaw)
 
 	// Check that vision service is configured
 	if s.vision == nil {
 		return toolErrorToResult(ErrVisionNotConfigured)
 	}
 
-	// Decode base64 image
+	// Decode image input (base64, data URI, or file path)
 	imageBytes, err := decodeImageInput(imageData)
 	if err != nil {
 		return toolErrorToResult(err)
@@ -85,7 +70,7 @@ func (s *Server) handleDescribeImage(
 
 	slog.Debug("describe_image called",
 		slog.String("detail_level", detailLevel),
-		slog.String("format", format),
+		slog.String("format", string(format)),
 		slog.Int("image_size", len(imageBytes)),
 	)
 
@@ -105,7 +90,7 @@ func (s *Server) handleDescribeImage(
 	// Format result
 	var formatted string
 	switch format {
-	case "json":
+	case formatter.FormatJSON:
 		formatted = formatter.FormatVisionJSON(visionResult)
 	default:
 		formatted = formatter.FormatVision(visionResult, detailLevel)
