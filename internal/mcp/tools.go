@@ -11,6 +11,8 @@ import (
 
 	"github.com/kush/ocr-mcp/internal/cache"
 	"github.com/kush/ocr-mcp/internal/formatter"
+	"github.com/kush/ocr-mcp/internal/ocr"
+	"github.com/kush/ocr-mcp/internal/workers"
 
 	"github.com/mark3labs/mcp-go/mcp"
 )
@@ -112,11 +114,46 @@ func (s *Server) handleReadImage(
 
 	// --- Step 6: Send to OCR service ---
 	// Use processed bytes for OCR
-	// Use the OCR provider if available; fall back to placeholder if none configured.
+	// Route through worker pool if available; fall back to direct call.
 	if s.ocr != nil {
-		ocrResult, err := s.ocr.ExtractText(ctx, processedBytes)
-		if err != nil {
-			return toolErrorToResult(ErrOCRFailed.WithDetails(err.Error()))
+		var ocrResult *ocr.OCRResult
+		var err error
+
+		if s.pool != nil {
+			// Route through worker pool
+			resultCh := make(chan *workers.JobResult, 1)
+			poolJob := workers.Job{
+				ID:      fmt.Sprintf("%x", imageHash)[:12],
+				Image:   processedBytes,
+				Timeout: s.cfg.JobTimeout,
+				Result:  resultCh,
+				Ctx:     ctx,
+			}
+
+			// Submit job to pool (blocks if queue is full — provides backpressure)
+			if submitErr := s.pool.Submit(poolJob); submitErr != nil {
+				return toolErrorToResult(NewToolError(ErrCodeInternal, "failed to submit OCR job").WithDetails(submitErr.Error()))
+			}
+
+			select {
+			case jobResult := <-resultCh:
+				if jobResult != nil {
+					if jobResult.Err != nil {
+						return toolErrorToResult(ErrOCRFailed.WithDetails(jobResult.Err.Error()))
+					}
+					ocrResult = jobResult.Result
+				} else {
+					return toolErrorToResult(ErrOCRFailed.WithDetails("OCR job returned nil result"))
+				}
+			case <-ctx.Done():
+				return toolErrorToResult(ErrTimeout.WithDetails("request cancelled while waiting for OCR"))
+			}
+		} else {
+			// Direct call (no pool)
+			ocrResult, err = s.ocr.ExtractText(ctx, processedBytes)
+			if err != nil {
+				return toolErrorToResult(ErrOCRFailed.WithDetails(err.Error()))
+			}
 		}
 
 		slog.Debug("OCR completed",

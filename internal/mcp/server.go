@@ -12,6 +12,7 @@ import (
 	"github.com/kush/ocr-mcp/internal/cache"
 	"github.com/kush/ocr-mcp/internal/ocr"
 	"github.com/kush/ocr-mcp/internal/preprocess"
+	"github.com/kush/ocr-mcp/internal/workers"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
@@ -24,6 +25,7 @@ type Server struct {
 	ocr         ocr.OCRProvider
 	preproc     *preprocess.Processor
 	cache       cache.Cache
+	pool        *workers.Pool
 }
 
 // NewServer creates a new MCP server with OCR tools registered.
@@ -77,6 +79,27 @@ func NewServer(cfg *configs.Config) (*Server, error) {
 	} else {
 		s.ocr = ocrProvider
 		slog.Info("OCR provider initialized", slog.String("provider", ocrProvider.Name()))
+
+		// Initialize worker pool
+		pool, poolErr := workers.NewPool(workers.Config{
+			WorkerCount: cfg.WorkerCount,
+			QueueSize:   cfg.QueueSize,
+			JobTimeout:  cfg.JobTimeout,
+			OCRProvider: ocrProvider,
+		})
+		if poolErr != nil {
+			slog.Warn("failed to create worker pool, OCR will run directly",
+				slog.String("error", poolErr.Error()),
+			)
+		} else {
+			pool.Start()
+			s.pool = pool
+			slog.Info("worker pool started",
+				slog.Int("workers", cfg.WorkerCount),
+				slog.Int("queue_size", cfg.QueueSize),
+				slog.Duration("job_timeout", cfg.JobTimeout),
+			)
+		}
 	}
 
 	// Register tools
@@ -112,6 +135,22 @@ func (s *Server) Start(ctx context.Context, addr string) error {
 	select {
 	case <-ctx.Done():
 		slog.Info("shutting down MCP server")
+
+		// Shut down worker pool gracefully
+		if s.pool != nil {
+			slog.Info("shutting down worker pool")
+			if shutdownErr := s.pool.Shutdown(s.cfg.Shutdown); shutdownErr != nil {
+				slog.Warn("worker pool shutdown", slog.String("error", shutdownErr.Error()))
+			}
+		}
+
+		// Close cache
+		if s.cache != nil {
+			if cacheErr := s.cache.Close(); cacheErr != nil {
+				slog.Warn("cache close", slog.String("error", cacheErr.Error()))
+			}
+		}
+
 		return nil
 	case err := <-errCh:
 		return err
