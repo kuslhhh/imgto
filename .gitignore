@@ -1,0 +1,51 @@
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+/bin/
+/tmp/
+
+# Go
+*.test
+*.out
+go.work
+go.work.sum
+vendor/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+build-errors.log
+
+# Environment
+.env
+.env.local
+.env.production
+
+# Build artifacts
+/dist/
+/build/
+
+# Coverage
+coverage.out
+coverage.html
+
+# Python (OCR service)
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
