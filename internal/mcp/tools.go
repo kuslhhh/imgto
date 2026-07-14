@@ -9,6 +9,8 @@ import (
 	"log/slog"
 	"strings"
 
+	"github.com/kush/ocr-mcp/internal/formatter"
+
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
@@ -116,9 +118,11 @@ func (s *Server) handleReadImage(
 			slog.Int("text_length", len(ocrResult.Text)),
 		)
 
-		// --- Step 7: Format result as Markdown ---
-		// TODO(Phase 5): Use formatter interface
-		result := buildPlaceholderResult(imageData, format, imageHash)
+		// --- Step 7: Format result ---
+		formatted, err := formatter.FormatString(ocrResult, format)
+		if err != nil {
+			return toolErrorToResult(NewToolError(ErrCodeInternal, "failed to format OCR result").WithDetails(err.Error()))
+		}
 
 		// --- Step 8: Cache result ---
 		// TODO(Phase 6): Cache the result
@@ -126,19 +130,17 @@ func (s *Server) handleReadImage(
 		//     slog.Warn("failed to cache result", slog.String("error", err.Error()))
 		// }
 
-		return result, nil
+		return mcp.NewToolResultText(formatted), nil
 	}
 
-	slog.Debug("no OCR provider configured, returning placeholder")
-	result := buildPlaceholderResult(imageData, format, imageHash)
+	slog.Debug("no OCR provider configured")
+	result := fmt.Sprintf("# OCR Result\n\n"+
+		"## Extracted Text\n\n"+
+		"_No OCR provider is configured. The server started without an OCR backend._\n\n"+
+		"## Confidence\n\nN/A\n\n---\n\n"+
+		"*Set `OCR_SERVICE_URL` and `OCR_SERVICE_PORT` environment variables to configure the OCR service.*\n")
 
-	// --- Step 8: Cache result ---
-	// TODO(Phase 6): Cache the result
-	// if err := s.cache.Set(ctx, imageHash, ocrResult, s.cfg.CacheTTL); err != nil {
-	//     slog.Warn("failed to cache result", slog.String("error", err.Error()))
-	// }
-
-	return result, nil
+	return mcp.NewToolResultText(result), nil
 }
 
 // parseInputArgs extracts and validates arguments from the MCP tool request.
@@ -215,48 +217,6 @@ func decodeImageInput(input string) ([]byte, error) {
 func computeImageHash(data []byte) []byte {
 	h := sha256.Sum256(data)
 	return h[:]
-}
-
-// buildPlaceholderResult creates a placeholder OCR result for Phase 1.
-// This will be replaced with real formatting in Phase 5.
-func buildPlaceholderResult(imageData string, format string, hash []byte) *mcp.CallToolResult {
-	prefix := safePrefix(imageData, 40)
-	hashStr := fmt.Sprintf("%x", hash)
-
-	if format == "json" {
-		jsonResult := fmt.Sprintf(`{
-  "status": "placeholder",
-  "message": "OCR pipeline not yet fully implemented",
-  "image_hash": "%s",
-  "image_preview": "%s...",
-  "extracted_text": "OCR processing not yet available. This will return structured text in future phases.",
-  "confidence": 0
-}`, hashStr, prefix)
-		return mcp.NewToolResultText(jsonResult)
-	}
-
-	markdownResult := fmt.Sprintf("# OCR Result\n\n"+
-		"## Extracted Text\n\n"+
-		"OCR processing not yet available. This server is in development.\n\n"+
-		"**Image Preview:** %s...\n"+
-		"**Image Hash:** `%s`\n\n"+
-		"## Tables\n\n"+
-		"\u2014 *(Table detection not yet implemented)*\n\n"+
-		"## UI Components\n\n"+
-		"\u2014 *(UI detection not yet implemented)*\n\n"+
-		"## Layout\n\n"+
-		"\u2014 *(Layout analysis not yet implemented)*\n\n"+
-		"## Confidence\n\n"+
-		"\u2014 *(Confidence scoring not yet implemented)*\n\n"+
-		"---\n\n"+
-		"*This is a Phase 1 placeholder response. The OCR pipeline will be implemented in future phases:*\n"+
-		"- *Phase 2: OCR Provider Interface*\n"+
-		"- *Phase 3: PaddleOCR Python Service*\n"+
-		"- *Phase 4: Image Preprocessing*\n"+
-		"- *Phase 5: Output Formatting*\n"+
-		"- *Phase 6: Caching*\n"+
-		"- *Phase 7: Worker Pool*\n", prefix, hashStr)
-	return mcp.NewToolResultText(markdownResult)
 }
 
 // toolErrorToResult converts a ToolError to an MCP CallToolResult.
